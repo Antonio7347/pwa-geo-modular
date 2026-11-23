@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+  <!-- Color de tema sincronizado con manifest.json -->
+  <meta name="theme-color" content="#0f172a">
+  <meta name="author" content="Antonio García González">
+
+  <!-- Soporte standalone en iOS / WebKit -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GeoModularPWA">
+
+  <title>Geolocalización Consciente PWA | Antonio García González</title>
+
+  <!-- Rutas relativas obligatorias para subdirectorio en GitHub Pages -->
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="cabecera">
+    <div class="cabecera-info">
+      <h1>Geolocalización Consciente PWA</h1>
+      <p class="autor">Antonio García González • Tema 6.3 (`geo-helper.js`)</p>
+    </div>
+
+    <button id="btn-instalar" type="button" class="btn btn-instalar" hidden>
+      Instalar App
+    </button>
+  </header>
+
+  <main class="contenedor">
+    <!-- Nota informativa exclusiva para iPhone / iPad cuando corre en Safari -->
+    <section id="instrucciones-ios" class="card card-ios" hidden>
+      <h2>Nota para iPhone (iOS / WebKit)</h2>
+      <p>
+        Para instalar en inicio, pulsa <strong>Compartir</strong> en Safari y elige
+        <strong>"Agregar a inicio"</strong>. Recuerda que en iOS los permisos de ubicación
+        entre Safari y la PWA instalada son independientes.
+      </p>
+    </section>
+
+    <!-- Panel de estado general y estado actual del permiso -->
+    <section class="card card-estado" aria-live="polite">
+      <div class="fila-estado">
+        <span class="etiqueta-estado">Estado de Geolocalización</span>
+        <span id="badge-permiso" class="badge badge-neutro">Permiso: sin consultar</span>
+      </div>
+      <p id="mensaje-estado" class="mensaje-estado">
+        Listo. Pulsa "Adjuntar mi ubicación" para iniciar el flujo consciente bajo demanda.
+      </p>
+    </section>
+
+    <!--
+      TARJETA DE PRE-PERMISO (UX Ética - Paso 1):
+      Se despliega cuando consultarEstadoPermisoGeo() devuelve 'prompt'.
+      Nunca se dispara el diálogo nativo sin explicar primero el beneficio al usuario.
+    -->
+    <section id="tarjeta-prepermiso" class="card card-permiso" hidden>
+      <h2>¿Por qué solicitamos tu ubicación?</h2>
+      <p>
+        Necesitamos tu ubicación aproximada para <strong>adjuntar las coordenadas exactas al reporte técnico</strong>
+        y <strong>calcular la sucursal de soporte más cercana</strong>. La lectura es única
+        (<code>getCurrentPosition</code>), no rastrea tu movimiento en segundo plano y siempre cuentas con selección manual.
+      </p>
+
+      <label class="opcion-laptop" for="chk-modo-laptop">
+        <input type="checkbox" id="chk-modo-laptop">
+        <span>
+          Modo equipo sin GPS (Laptop / Ethernet): desactiva <code>enableHighAccuracy</code>
+          para evitar demoras o <code>TIMEOUT</code> al triangular por Wi-Fi/IP.
+        </span>
+      </label>
+
+      <div class="acciones-permiso">
+        <button id="btn-confirmar-ubicacion" type="button" class="btn btn-primario">
+          Compartir mi ubicación
+        </button>
+        <button id="btn-elegir-manual" type="button" class="btn btn-secundario">
+          Ingresar zona manualmente
+        </button>
+      </div>
+    </section>
+
+    <!--
+      DIAGNÓSTICO DE PRECISIÓN (coords.accuracy):
+      Distingue visualmente entre GPS de alta precisión (< 30 m) y Wi-Fi / IP (>= 30 m).
+    -->
+    <section id="resultado-ubicacion" class="card card-resultado" hidden>
+      <div class="fila-estado">
+        <h2>Diagnóstico de Coordenadas</h2>
+        <span id="badge-calidad" class="badge"></span>
+      </div>
+
+      <p id="detalle-calidad" class="texto-secundario"></p>
+
+      <div class="grid-coordenadas">
+        <div class="dato-caja">
+          <span class="dato-etiqueta">Margen de error (`accuracy`)</span>
+          <strong id="valor-precision" class="dato-valor">-- m</strong>
+        </div>
+        <div class="dato-caja">
+          <span class="dato-etiqueta">Hora de lectura</span>
+          <strong id="valor-timestamp" class="dato-valor">--:--:--</strong>
+        </div>
+        <div class="dato-caja">
+          <span class="dato-etiqueta">Latitud (WGS84)</span>
+          <strong id="valor-latitud" class="dato-valor">--</strong>
+        </div>
+        <div class="dato-caja">
+          <span class="dato-etiqueta">Longitud (WGS84)</span>
+          <strong id="valor-longitud" class="dato-valor">--</strong>
+        </div>
+      </div>
+    </section>
+
+    <!--
+      PLAN B OBLIGATORIO (Degradación Elegante):
+      Se activa automáticamente si el permiso es 'denied', si ocurre TIMEOUT (código 3)
+      o señal no disponible (código 2), o si el usuario prefiere captura manual.
+    -->
+    <section id="seccion-plan-b" class="card card-plan-b" hidden>
+      <div class="fila-estado">
+        <h2>Plan B: Selección Manual de Zona</h2>
+        <span class="badge badge-aviso">Sin bloqueo</span>
+      </div>
+
+      <p class="texto-secundario">
+        La aplicación sigue operando aunque no haya GPS o el permiso esté bloqueado. Selecciona tu zona operativa:
+      </p>
+
+      <div id="guia-reactivar-permiso" class="caja-reactivacion" hidden>
+        <strong>¿Cómo reactivar el permiso de ubicación en tu navegador?</strong>
+        <ul>
+          <li><strong>Chrome / Android / Desktop:</strong> Toca el icono de ajustes o candado junto a la URL &rarr; <em>Permisos</em> &rarr; <em>Ubicación: Permitir</em> y recarga.</li>
+          <li><strong>iPhone (Safari / PWA):</strong> Ve a <em>Ajustes &rarr; Apps &rarr; Safari &rarr; Ubicación</em> (o el icono <em>aA</em> en la barra) y selecciona <em>Permitir</em>.</li>
+        </ul>
+      </div>
+
+      <div class="grupo-campo">
+        <label for="selector-zona">Zona / Sede Operativa</label>
+        <select id="selector-zona">
+          <option value="">-- Selecciona una zona --</option>
+          <option value="Zona Centro - Emiliano Zapata (Campus UTEZ)">Zona Centro - Emiliano Zapata (Campus UTEZ)</option>
+          <option value="Zona Norte - Cuernavaca">Zona Norte - Cuernavaca</option>
+          <option value="Zona Oriente - Cuautla">Zona Oriente - Cuautla</option>
+          <option value="Zona Sur - Jojutla">Zona Sur - Jojutla</option>
+          <option value="Zona Metropolitana - CDMX">Zona Metropolitana - CDMX</option>
+        </select>
+      </div>
+
+      <div class="grupo-campo">
+        <label for="input-referencia-manual">Referencia adicional (opcional)</label>
+        <input
+          type="text"
+          id="input-referencia-manual"
+          placeholder="Ej. Edificio de Docencia 2, Laboratorio de Redes"
+          autocomplete="off"
+        >
+      </div>
+
+      <div class="acciones-permiso">
+        <button id="btn-aplicar-zona-manual" type="button" class="btn btn-primario">
+          Confirmar Zona Manual
+        </button>
+        <button id="btn-reintentar-baja-precision" type="button" class="btn btn-secundario" hidden>
+          Reintentar con Baja Precisión (Wi-Fi / IP)
+        </button>
+      </div>
+    </section>
+
+    <!-- CONSUMIDOR 1 DE geo-helper.js: Formulario de Reporte Técnico -->
+    <section class="card">
+      <h2>1. Reporte Técnico en Campo</h2>
+      <p class="texto-secundario">
+        Consume <code>obtenerUbicacionActual()</code> para etiquetar la evidencia con coordenadas o con el Plan B manual.
+      </p>
+
+      <form id="form-reporte" class="formulario">
+        <div class="grupo-campo">
+          <label for="titulo-reporte">Equipo o incidencia</label>
+          <input
+            type="text"
+            id="titulo-reporte"
+            placeholder="Ej. Revisión de nodo óptico sector B"
+            required
+            autocomplete="off"
+          >
+        </div>
+
+        <div class="grupo-campo">
+          <label for="detalle-reporte">Observaciones técnicas</label>
+          <textarea
+            id="detalle-reporte"
+            rows="2"
+            placeholder="Describe brevemente el hallazgo en sitio..."
+            required
+          ></textarea>
+        </div>
+
+        <div class="resumen-ubicacion-actual" id="resumen-adjunto">
+          Ubicación adjunta: <strong>Ninguna todavía</strong> (usa "Adjuntar mi ubicación" o envía directo).
+        </div>
+
+        <div class="acciones-formulario">
+          <button id="btn-adjuntar-ubicacion" type="button" class="btn btn-acento">
+            Adjuntar mi ubicación
+          </button>
+          <button id="btn-enviar-reporte" type="submit" class="btn btn-primario">
+            Guardar Reporte
+          </button>
+        </div>
+      </form>
+
+      <ul id="lista-reportes" class="lista-items" aria-live="polite"></ul>
+    </section>
+
+    <!-- CONSUMIDOR 2 DE geo-helper.js: Buscador rápido de sucursales cercanas -->
+    <section class="card">
+      <div class="fila-estado">
+        <h2>2. Sucursales de Soporte Cercanas</h2>
+        <span class="badge badge-neutro">Reutilización modular</span>
+      </div>
+      <p class="texto-secundario">
+        Segunda función independiente en <code>app.js</code> que reutiliza <code>geo-helper.js</code>
+        con lectura rápida (<code>enableHighAccuracy: false</code>, caché de 60 s).
+      </p>
+
+      <button id="btn-buscar-sucursales" type="button" class="btn btn-secundario btn-bloque">
+        Calcular Sucursal Más Cercana
+      </button>
+
+      <ul id="lista-sucursales" class="lista-items"></ul>
+    </section>
+  </main>
+
+  <footer class="pie">
+    <p>PWA Tema 6.3 • 100% Vanilla JS (Promesas puras) • Antonio García González</p>
+  </footer>
+
+  <!-- Orden obligatorio: primero geo-helper.js y después app.js -->
+  <script src="./geo-helper.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
