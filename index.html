@@ -241,7 +241,10 @@
     <p>PWA Tema 6.3 • 100% Vanilla JS (Promesas puras) • Antonio García González</p>
   </footer>
 
-  <!-- Orden obligatorio: primero geo-helper.js y después app.js -->
+  <!-- ORDEN DE CARGA OBLIGATORIO EN VANILLA JS:
+       1. Primero se carga ./geo-helper.js para registrar en el ámbito global (window)
+          obtenerUbicacionActual, consultarEstadoPermisoGeo y evaluarCalidadSenal.
+       2. Después se carga ./app.js, cuyos flujos de reporte y sucursales reutilizan el helper. -->
   <script src="./geo-helper.js"></script>
   <script src="./app.js"></script>
 </body>

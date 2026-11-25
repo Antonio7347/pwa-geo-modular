@@ -1,9 +1,20 @@
 // ==========================================================================
-// app.js - Logica de UI, Pre-Permiso Etico, Plan B y Consumo de geo-helper.js
-// Alumno: Antonio Garcia Gonzalez
+// app.js - Lógica de UI, Pre-Permiso Ético, Plan B y Consumo de geo-helper.js
+// Tema 6.3: Geolocalización Consciente, Multiplataforma y Reutilizable
+// Alumno: Antonio García González
 // ==========================================================================
-// REGLA OBLIGATORIA: 100% JavaScript Vanilla sin librerias externas.
-// Toda operacion asincrona se consume con .then(), .catch() y .finally().
+// REGLA DEL CURSO: 100% JavaScript Vanilla sin librerías externas y CERO async/await.
+// Toda operación asíncrona se consume con .then(), .catch() y .finally().
+//
+// FLUJO GENERAL DE DECISIÓN ("QUÉ LLEVA A QUÉ"):
+//   [Clic del usuario en "Adjuntar mi ubicación" o "Calcular Sucursal"]
+//          │  (Jamás en DOMContentLoaded: iOS bloquea lecturas sin gesto directo)
+//          ▼
+//   iniciarFlujoConscienteUbicacion() ──► consultarEstadoPermisoGeo() (geo-helper.js)
+//          │
+//          ├── 'granted' ──► obtenerUbicacionActual() directo (Consumidor 1 alta precisión | Consumidor 2 baja precisión)
+//          ├── 'prompt'  ──► muestra #tarjeta-prepermiso ──► botón confirmar dispara obtenerUbicacionActual()
+//          └── 'denied'  ──► habilitarSelectorManualZona() (Plan B sin bloquear al usuario)
 // ==========================================================================
 
 let eventoInstalacionDiferido = null;
@@ -12,7 +23,7 @@ let zonaManualActual = null;
 let accionPendienteTrasPermiso = 'adjuntar'; // 'adjuntar' | 'sucursales'
 const reportesGuardados = [];
 
-// Catalogo local de sedes operativas para demostrar el segundo consumidor modular
+// Catálogo local de sedes operativas para el segundo consumidor modular (cálculo de distancia)
 const SUCURSALES_SOPORTE = [
   {
     nombre: 'Centro Técnico Emiliano Zapata (UTEZ)',
@@ -47,7 +58,7 @@ const SUCURSALES_SOPORTE = [
 ];
 
 // --------------------------------------------------------------------------
-// 1. REGISTRO DEL SERVICE WORKER (Rutas relativas para GitHub Pages)
+// 1. REGISTRO DEL SERVICE WORKER (Ruta relativa './' para GitHub Pages)
 // --------------------------------------------------------------------------
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js')
@@ -60,7 +71,7 @@ if ('serviceWorker' in navigator) {
 }
 
 // --------------------------------------------------------------------------
-// 2. INSTALABILIDAD NATIVA Y DETECCION INFORMATIVA DE iOS / WEBKIT
+// 2. INSTALABILIDAD NATIVA Y DETECCIÓN DE ENTORNO iOS / WEBKIT
 // --------------------------------------------------------------------------
 window.addEventListener('beforeinstallprompt', (event) => {
   event.preventDefault();
@@ -81,6 +92,8 @@ window.addEventListener('appinstalled', () => {
   mostrarMensajeEstado('PWA instalada correctamente en la pantalla de inicio.', 'activo');
 });
 
+// En iOS/WebKit no existe beforeinstallprompt y los permisos entre Safari y la PWA
+// instalada en pantalla de inicio (standalone) se almacenan de forma aislada.
 function verificarNotaIOS() {
   const esDispositivoIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -96,7 +109,7 @@ function verificarNotaIOS() {
 }
 
 // --------------------------------------------------------------------------
-// 3. UTILIDADES VISUALES DE ESTADO, PERMISO Y DIAGNOSTICO DE PRECISION
+// 3. UTILIDADES VISUALES DE ESTADO, PERMISO Y DIAGNÓSTICO DE PRECISIÓN
 // --------------------------------------------------------------------------
 function mostrarMensajeEstado(texto, tipo) {
   const elemento = document.getElementById('mensaje-estado');
@@ -175,8 +188,8 @@ function actualizarResumenAdjunto() {
 }
 
 /**
- * Renderiza en pantalla coords.accuracy (precisionMetros) junto con la etiqueta
- * obligatoria: "Precisión GPS Alta" (< 30 m) o "Ubicación Aproximada (Wi-Fi / IP)" (>= 30 m).
+ * Muestra en interfaz el margen de error `precisionMetros` (coords.accuracy) y clasifica
+ * visualmente "Precisión GPS Alta" (< 30 m) vs "Ubicación Aproximada (Wi-Fi / IP)" (>= 30 m).
  */
 function renderizarResultadoUbicacion(ubicacion) {
   const seccionResultado = document.getElementById('resultado-ubicacion');
@@ -214,8 +227,9 @@ function renderizarResultadoUbicacion(ubicacion) {
 }
 
 /**
- * Habilita el Plan B obligatorio (selector manual de zona) para que la PWA
- * jamas quede bloqueada ante PERMISSION_DENIED, POSITION_UNAVAILABLE o TIMEOUT.
+ * Plan B Obligatorio (Degradación Elegante):
+ * Garantiza que la operación nunca quede bloqueada si el usuario deniega el permiso (código 1),
+ * si está en un escritorio sin GPS o si ocurre TIMEOUT (código 3).
  */
 function habilitarSelectorManualZona(mostrarGuiaPermisoDenegado, permitirReintentoBajaPrecision) {
   const seccionPlanB = document.getElementById('seccion-plan-b');
@@ -238,8 +252,10 @@ function habilitarSelectorManualZona(mostrarGuiaPermisoDenegado, permitirReinten
 }
 
 // --------------------------------------------------------------------------
-// 4. FLUJO DE PRE-PERMISO CONSCIENTE Y LECTURA DE UBICACION
+// 4. FLUJO DE PRE-PERMISO CONSCIENTE Y PREVENCIÓN DE TIMEOUT EN LAPTOPS SIN GPS
 // --------------------------------------------------------------------------
+// En computadoras sin chip GPS (especialmente conectadas por cable Ethernet), forzar
+// enableHighAccuracy: true no genera precisión satelital y suele agotar el tiempo (TIMEOUT).
 function obtenerOpcionesSegunDispositivo() {
   const chkModoLaptop = document.getElementById('chk-modo-laptop');
   const usarModoSinGPS = chkModoLaptop && chkModoLaptop.checked;
@@ -260,8 +276,8 @@ function obtenerOpcionesSegunDispositivo() {
 }
 
 /**
- * Ejecuta la lectura real invocando obtenerUbicacionActual() desde geo-helper.js
- * para adjuntar las coordenadas al formulario actual.
+ * Consume `obtenerUbicacionActual()` desde `geo-helper.js` manejando éxito en .then(),
+ * degradación automática al Plan B en .catch() y rehabilitación de botones en .finally().
  */
 function ejecutarLecturaParaAdjuntar(opcionesForzadas) {
   const btnAdjuntar = document.getElementById('btn-adjuntar-ubicacion');
@@ -315,10 +331,10 @@ function ejecutarLecturaParaAdjuntar(opcionesForzadas) {
 }
 
 /**
- * Inicia el flujo del Desafío #2 al pulsar "Adjuntar mi ubicación":
- * 1) estado === 'granted' -> llama directamente a obtenerUbicacionActual().
- * 2) estado === 'prompt'  -> despliega la tarjeta explicativa de pre-permiso.
- * 3) estado === 'denied'  -> muestra el selector manual e instrucciones de reactivación.
+ * Enrutador ético de 3 caminos basado en `consultarEstadoPermisoGeo()`:
+ * - 'granted': solicita coordenadas directamente sin mostrar tarjeta redundante.
+ * - 'prompt':  despliega primero `#tarjeta-prepermiso` explicando el beneficio al usuario.
+ * - 'denied':  abre directamente el selector manual de zona e instrucciones de desbloqueo.
  */
 function iniciarFlujoConscienteUbicacion(accionDestino) {
   accionPendienteTrasPermiso = accionDestino || 'adjuntar';
@@ -346,7 +362,7 @@ function iniciarFlujoConscienteUbicacion(accionDestino) {
         return null;
       }
 
-      // estado === 'prompt': mostramos primero la explicación contextual ética
+      // Estado 'prompt': explicación contextual antes de disparar el diálogo del sistema
       if (tarjetaPrepermiso) {
         tarjetaPrepermiso.hidden = false;
       }
@@ -358,7 +374,7 @@ function iniciarFlujoConscienteUbicacion(accionDestino) {
 }
 
 // --------------------------------------------------------------------------
-// 5. CONSUMIDOR 1 (app.js): ENVIAR REPORTE TECNICO CON UBICACION O PLAN B
+// 5. CONSUMIDOR MODULAR 1: REPORTE TÉCNICO EN CAMPO (Alta Precisión GPS)
 // --------------------------------------------------------------------------
 function registrarPaqueteReporte(paqueteCompleto) {
   reportesGuardados.unshift(paqueteCompleto);
@@ -421,7 +437,6 @@ function renderizarListaReportes() {
 }
 
 function enviarReporteConUbicacion(datosFormulario) {
-  // Si el usuario ya adjuntó coordenadas o ya confirmó una zona manual, registramos de inmediato
   if (ubicacionAdjuntaActual) {
     const paqueteConGeo = Object.assign({}, datosFormulario, {
       coordenadas: ubicacionAdjuntaActual
@@ -440,7 +455,6 @@ function enviarReporteConUbicacion(datosFormulario) {
     return Promise.resolve(paqueteManual);
   }
 
-  // Si aún no adjunta ubicación, consultamos primero el permiso respetando UX consciente
   return consultarEstadoPermisoGeo()
     .then((estado) => {
       actualizarBadgePermiso(estado);
@@ -463,6 +477,7 @@ function enviarReporteConUbicacion(datosFormulario) {
       }
 
       mostrarCargando('Obteniendo coordenadas para el reporte...');
+      // Consumidor 1 invoca geo-helper.js priorizando precisión satelital
       return obtenerUbicacionActual({ enableHighAccuracy: true, timeout: 7000 })
         .then((ubicacion) => {
           ubicacionAdjuntaActual = ubicacion;
@@ -486,8 +501,9 @@ function enviarReporteConUbicacion(datosFormulario) {
 }
 
 // --------------------------------------------------------------------------
-// 6. CONSUMIDOR 2 (app.js): BUSCAR SUCURSALES CERCANAS (Baja Precision Rapida)
+// 6. CONSUMIDOR MODULAR 2: SUCURSALES CERCANAS (Lectura Rápida de Baja Precisión)
 // --------------------------------------------------------------------------
+// Fórmula de Haversine para calcular distancia geodésica en kilómetros sobre la esfera terrestre
 function calcularDistanciaKm(lat1, lon1, lat2, lon2) {
   const radioTierraKm = 6371;
   const aRadianes = (grados) => (grados * Math.PI) / 180;
@@ -539,6 +555,11 @@ function renderizarSucursalesOrdenadas(listaConDistancias, modoOrigen) {
   });
 }
 
+/**
+ * Segundo consumidor independiente de `geo-helper.js`:
+ * A diferencia del reporte técnico, aquí pasamos `enableHighAccuracy: false` y `maximumAge: 60000`
+ * para resolver al instante con caché o red sin encender innecesariamente el GPS satelital.
+ */
 function buscarSucursalesCercanas() {
   mostrarCargando('Calculando sucursales cercanas (lectura rápida)...');
 
@@ -590,7 +611,9 @@ function filtrarSucursalesPorZonaManual(zonaSeleccionada) {
 }
 
 // --------------------------------------------------------------------------
-// 7. CONEXION DE EVENTOS EN DOMContentLoaded (Cero lectura automatica en iOS)
+// 7. CONEXIÓN DE EVENTOS EN DOMContentLoaded (Cero lectura automática de GPS)
+// - En iOS/Safari, llamar getCurrentPosition() automáticamente al cargar la página
+//   sin un clic directo del usuario suele ser bloqueado silenciosamente.
 // --------------------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
   verificarNotaIOS();
@@ -606,7 +629,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const formReporte = document.getElementById('form-reporte');
   const tarjetaPrepermiso = document.getElementById('tarjeta-prepermiso');
 
-  // Instalación nativa en Android / Chrome / Desktop
+  // Instalación programática de un solo uso en Android / Chromium
   if (btnInstalar) {
     btnInstalar.addEventListener('click', () => {
       if (!eventoInstalacionDiferido) return;
@@ -626,14 +649,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Botón principal del Desafío #2: "Adjuntar mi ubicación"
+  // Disparo bajo demanda desde gesto directo del usuario ("Adjuntar mi ubicación")
   if (btnAdjuntar) {
     btnAdjuntar.addEventListener('click', () => {
       iniciarFlujoConscienteUbicacion('adjuntar');
     });
   }
 
-  // Confirmación consciente dentro de la tarjeta de Pre-Permiso (gesto directo requerido por iOS)
+  // Confirmación informada dentro de #tarjeta-prepermiso (gesto directo compatible con Safari iOS)
   if (btnConfirmarUbicacion) {
     btnConfirmarUbicacion.addEventListener('click', () => {
       if (tarjetaPrepermiso) {
@@ -647,7 +670,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Pasar voluntariamente al Plan B sin disparar el diálogo nativo del navegador
+  // Paso voluntario al Plan B manual sin disparar ni quemar el diálogo nativo del navegador
   if (btnElegirManual) {
     btnElegirManual.addEventListener('click', () => {
       if (tarjetaPrepermiso) {
@@ -658,7 +681,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Confirmar selección manual de zona (Plan B)
+  // Confirmar sede operativa elegida manualmente en el Plan B
   if (btnAplicarZonaManual) {
     btnAplicarZonaManual.addEventListener('click', () => {
       const selectorZona = document.getElementById('selector-zona');
@@ -682,7 +705,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Botón de rescate en laptops sin GPS cuando enableHighAccuracy lanza TIMEOUT
+  // Reintento rápido en laptops sin GPS cuando enableHighAccuracy provocó TIMEOUT (código 3)
   if (btnReintentarBaja) {
     btnReintentarBaja.addEventListener('click', () => {
       const chkModoLaptop = document.getElementById('chk-modo-laptop');
@@ -697,7 +720,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Envío del formulario de reporte técnico (Consumidor 1)
+  // Envío del formulario sin recarga nativa (Consumidor 1)
   if (formReporte) {
     formReporte.addEventListener('submit', (event) => {
       event.preventDefault();
@@ -718,7 +741,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Botón de sucursales cercanas (Consumidor 2 de geo-helper.js)
+  // Buscador de sucursales cercanas (Consumidor 2 de geo-helper.js)
   if (btnBuscarSucursales) {
     btnBuscarSucursales.addEventListener('click', () => {
       iniciarFlujoConscienteUbicacion('sucursales');

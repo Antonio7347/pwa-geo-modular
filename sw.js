@@ -1,15 +1,17 @@
 // ==========================================================================
 // sw.js - Service Worker con estrategia Cache First y App Shell modular
-// Alumno: Antonio Garcia Gonzalez
+// Tema 6.3: Soporte Offline de Interfaz y Módulo Reutilizable (geo-helper.js)
+// Alumno: Antonio García González
 // ==========================================================================
-// REGLA TECNICA: 100% JavaScript Vanilla sin librerias externas.
-// Asincronia construida y consumida exclusivamente con Promesas (.then / .catch).
+// REGLA DEL CURSO: 100% JavaScript Vanilla sin librerías externas y CERO async/await.
+// Asincronía resuelta exclusivamente con Promesas (.then / .catch / Promise.all).
 // ==========================================================================
 
-const CACHE_NAME = 'pwa-geo-modular-v1';
+const CACHE_NAME = 'pwa-geo-modular-v2';
 
-// Todos los activos usan rutas relativas (./) para funcionar correctamente
-// dentro del subdirectorio de GitHub Pages, incluyendo ./geo-helper.js.
+// Todos los activos usan rutas relativas (./) para resolverse dentro del subdirectorio
+// del repositorio en GitHub Pages sin errores 404. Es indispensable incluir ./geo-helper.js
+// en el precaché para que la lógica modular y el Plan B sigan disponibles offline.
 const ARCHIVOS_APP_SHELL = [
   './',
   './index.html',
@@ -21,10 +23,11 @@ const ARCHIVOS_APP_SHELL = [
   './icons/icon-512.png'
 ];
 
-// 1. EVENTO INSTALL: Precarga en cache todos los archivos del App Shell
+// 1. EVENTO INSTALL: Precarga atómica del App Shell completo
 self.addEventListener('install', (event) => {
   self.skipWaiting();
 
+  // Si cualquiera de los 8 archivos falla con 404, cache.addAll() rechaza y aborta la instalación
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
@@ -34,7 +37,7 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// 2. EVENTO ACTIVATE: Limpia caches antiguas y toma control inmediato del cliente
+// 2. EVENTO ACTIVATE: Purga de contenedores obsoletos y reclamo inmediato de pestañas
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
@@ -54,7 +57,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// 3. EVENTO FETCH: Estrategia Cache First con respaldo a red
+// 3. EVENTO FETCH: Estrategia Cache First exclusiva para lecturas GET
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
